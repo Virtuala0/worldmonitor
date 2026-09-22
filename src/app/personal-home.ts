@@ -12,7 +12,8 @@
  * P2.2：「今日重点」汇总所有已渲染新闻面板的条目（见 readHighlights）。
  * 只做「去重 + 按面板轮转 + 每面板内取较新」，不做评分/AI/关键词模型，取前 5 条。
  *
- * 本轮仍未做（刻意留空）：AI 摘要、「AI / 科技」数据。
+ * P2.3：「AI / 科技」直接读已有的 AI / 科技面板（`tech`、`ai`），
+ * 不做关键词评分、不做 NLP/embedding/LLM；命中不到就继续显示「暂无重要内容」。
  *
  * i18n：本轮不新增任何 i18n key，中文占位与栏目名仍在模块内局部定义。
  */
@@ -25,7 +26,7 @@ import '../styles/personal-home.css';
 /** 挂载点 id —— 必须与 panel-layout.ts 模板里的 <section> 保持一致。 */
 export const PERSONAL_HOME_ID = 'personalHome';
 
-/** 中国 / 赤峰每栏最多展示的条数。 */
+/** 中国 / 赤峰 / AI 科技每栏最多展示的条数。 */
 const MAX_ITEMS = 3;
 /** 「今日重点」最多展示的条数。 */
 const MAX_HIGHLIGHTS = 5;
@@ -37,7 +38,7 @@ interface HomeBlock {
   /**
    * 复用来源：
    * - `'all'`  = 汇总所有已渲染的新闻面板（「今日重点」用）
-   * - 字符串数组 = 指定面板 key
+   * - 字符串数组 = 指定面板 key，按顺序取并去重
    * - `[]`     = 本轮不接数据
    */
   panels: readonly string[] | 'all';
@@ -47,7 +48,8 @@ const BLOCKS: readonly HomeBlock[] = [
   { id: 'top', title: '今日重点', empty: '暂无内容', panels: 'all' },
   { id: 'china', title: '中国', empty: '暂无内容', panels: ['china', 'china-news'] },
   { id: 'chifeng', title: '赤峰', empty: '暂无内容', panels: ['chifeng', 'chifeng-news'] },
-  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: [] },
+  // AI / 科技：直接用已有的 tech / ai 新闻面板，不做关键词筛选。
+  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: ['tech', 'ai'] },
 ];
 
 /**
@@ -141,6 +143,31 @@ function titleKey(title: string): string {
 }
 
 /**
+ * 按给定面板 key 顺序取条目并去重（缺哪个面板就跳过哪个），最多 limit 条。
+ * 「AI / 科技」用它直接读已有的 tech / ai 面板，不做关键词评分。
+ */
+function readFromPanels(
+  keys: readonly string[],
+  limit: number,
+): Array<{ title: string; href: string }> {
+  const picked: Array<{ title: string; href: string }> = [];
+  const seen = new Set<string>();
+
+  for (const key of keys) {
+    for (const item of readHeadlines(findPanel([key]), limit)) {
+      const itemKey = titleKey(item.title);
+      if (!itemKey || seen.has(itemKey)) continue;
+      seen.add(itemKey);
+      picked.push(item);
+      if (picked.length >= limit) break;
+    }
+    if (picked.length >= limit) break;
+  }
+
+  return picked;
+}
+
+/**
  * 「今日重点」候选：汇总所有已渲染新闻面板的条目。
  *
  * 规则刻意保持轻量（无评分、无 AI、无关键词模型）：
@@ -152,9 +179,7 @@ function titleKey(title: string): string {
 function readHighlights(limit: number): Array<{ title: string; href: string }> {
   const panels = Array.from(document.querySelectorAll<HTMLElement>('.panel[data-panel]'));
   // 每个面板最多取 limit 条，够轮转用；面板已按时间倒序。
-  const lists = panels
-    .map(panel => readHeadlines(panel, limit))
-    .filter(list => list.length > 0);
+  const lists = panels.map(panel => readHeadlines(panel, limit)).filter(list => list.length > 0);
 
   const picked: Array<{ title: string; href: string }> = [];
   const seen = new Set<string>();
@@ -230,7 +255,8 @@ export class PersonalHome implements AppModule {
       const empty = host.querySelector<HTMLElement>(`[data-home-empty="${block.id}"]`);
       if (!slot || !empty) continue;
 
-      const items = keys === 'all' ? readHighlights(MAX_HIGHLIGHTS) : readHeadlines(findPanel(keys));
+      const items =
+        keys === 'all' ? readHighlights(MAX_HIGHLIGHTS) : readFromPanels(keys, MAX_ITEMS);
       const fingerprint = items.map(item => item.href).join('\n');
       if (this.rendered.get(block.id) !== fingerprint) {
         this.rendered.set(block.id, fingerprint);
