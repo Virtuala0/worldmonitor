@@ -12,15 +12,16 @@
  * P2.2：「今日重点」汇总所有已渲染新闻面板的条目（见 readHighlights）。
  * 只做「去重 + 按面板轮转 + 每面板内取较新」，不做评分/AI/关键词模型，取前 5 条。
  *
- * P2.3：「AI / 科技」先直接读已有的 tech / ai 面板（它们可能根本没挂载），
- * 无内容时再从 P2.2 已验证可用的同一批已渲染面板里，用一张极小的关键词表
- * 筛标题兜底（见 readTech）。不含评分 / NLP / embedding / LLM，宁缺毋滥。
+ * P2.3：「AI / 科技」不再读 DOM —— tech / ai 面板是延后挂载的，DOM 里长期只有一个
+ * 占位 shell。这两类新闻早就由 data-loader 写进 `ctx.newsByCategory`，且写入发生在
+ * 面板渲染之前，所以这里**直接从 ctx 读**（见 readCtxCategories），与面板是否挂载无关。
  *
  * i18n：本轮不新增任何 i18n key，中文占位与栏目名仍在模块内局部定义。
  */
 
 import { clearChildren, setTrustedHtml, trustedHtml } from '@/utils/dom-utils';
-import type { AppModule } from '@/app/app-context';
+import { sanitizeUrl } from '@/utils/sanitize';
+import type { AppContext, AppModule } from '@/app/app-context';
 
 import '../styles/personal-home.css';
 
@@ -31,36 +32,33 @@ export const PERSONAL_HOME_ID = 'personalHome';
 const MAX_ITEMS = 3;
 /** 「今日重点」最多展示的条数。 */
 const MAX_HIGHLIGHTS = 5;
-/** 兜底筛选时每个面板最多扫描的条目数（只是扫描深度，不代表展示数量）。 */
-const TECH_SCAN_DEPTH = 20;
 
-/**
- * 极小 AI / 科技关键词表 —— 只用于识别「明显」的 AI / 科技标题，不做评分。
- * 匹配对象是已归一化为小写的标题；ASCII 关键词要求词边界，
- * 避免 `ai` 误命中 said / against / Dubai 这类普通英文词。
- */
-const TECH_PATTERN =
-  /(?:^|[^a-z0-9])(?:ai|openai|chatgpt|deepseek|claude|anthropic|gemini|nvidia)(?![a-z0-9])|人工智能|英伟达|芯片|半导体|机器人|大模型/;
+/** Personal Home 只需要 AppContext 里的新闻缓存，不引入整个上下文的依赖面。 */
+type PersonalHomeContext = Pick<AppContext, 'newsByCategory'>;
 
 interface HomeBlock {
   id: string;
   title: string;
   empty: string;
   /**
-   * 复用来源：
+   * DOM 复用来源：
    * - `'all'`  = 汇总所有已渲染的新闻面板（「今日重点」用）
-   * - `'tech'` = 先读 tech / ai 面板，空了再从同一批面板按关键词兜底（「AI / 科技」用）
    * - 字符串数组 = 指定面板 key，按顺序取并去重
-   * - `[]`     = 本轮不接数据
+   * - `[]`     = 不读 DOM
    */
-  panels: readonly string[] | 'all' | 'tech';
+  panels: readonly string[] | 'all';
+  /**
+   * 直接从 `ctx.newsByCategory` 读取的 feed 类别（优先级高于 `panels`）。
+   * 用于那些数据已加载、但 NewsPanel 可能还没挂载的类别。
+   */
+  ctxCategories?: readonly string[];
 }
 
 const BLOCKS: readonly HomeBlock[] = [
   { id: 'top', title: '今日重点', empty: '暂无内容', panels: 'all' },
   { id: 'china', title: '中国', empty: '暂无内容', panels: ['china', 'china-news'] },
   { id: 'chifeng', title: '赤峰', empty: '暂无内容', panels: ['chifeng', 'chifeng-news'] },
-  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: 'tech' },
+  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: [], ctxCategories: ['tech', 'ai'] },
 ];
 
 /**
@@ -75,7 +73,8 @@ const SHORTCUTS = [
 
 function blockHtml(block: HomeBlock): string {
   // 接数据的栏目多一个条目容器；空容器由 refresh() 填充。
-  const hasData = block.panels === 'all' || block.panels === 'tech' || block.panels.length > 0;
+  const hasData =
+    (block.ctxCategories?.length ?? 0) > 0 || block.panels === 'all' || block.panels.length > 0;
   const body = hasData
     ? [
         `          <div class="personal-home__items" data-home-items="${block.id}"></div>`,
@@ -116,11 +115,9 @@ export function renderPersonalHomeShell(): string {
  * 找到该栏对应的**已存在**面板（只读）。
  *
  * 面板根是 `<div class="panel" data-panel="<key>">` —— **根元素没有 id 属性**
- * （components/Panel.ts:203-204 只设 className 与 dataset.panel；
- * 只有标题/内容子元素才带 id，如 `${key}Title` / `${key}Content`）。
+ * （components/Panel.ts:203-204 只设 className 与 dataset.panel）。
  * 所以必须按 `data-panel` 定位，不能按 `#id` 定位，也不能依赖面板标题文字
  * （面板标题是 i18n 文案，与首页栏目名并不相等）。
- * 在 document 上查找，避免依赖面板恰好挂在 #panelsGrid 内。
  */
 function findPanel(keys: readonly string[]): HTMLElement | null {
   for (const key of keys) {
@@ -148,7 +145,7 @@ function readHeadlines(
   return items;
 }
 
-/** 标题归一化：小写 + 折叠空白；只用于去重与关键词匹配，不做语义判断。 */
+/** 标题归一化：小写 + 折叠空白；只用于去重，不做语义判断。 */
 function titleKey(title: string): string {
   return title.replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -169,6 +166,38 @@ function readFromPanels(
       if (!itemKey || seen.has(itemKey)) continue;
       seen.add(itemKey);
       picked.push(item);
+      if (picked.length >= limit) break;
+    }
+    if (picked.length >= limit) break;
+  }
+
+  return picked;
+}
+
+/**
+ * 直接从 `ctx.newsByCategory` 读给定 feed 类别（按顺序合并），去重后最多 limit 条。
+ *
+ * 这条路径不依赖任何面板是否挂载：data-loader 的 renderNewsForCategory 在
+ * 「面板不存在就 return」之前就已经把条目写进 newsByCategory。
+ * 每个类别内部已是时间倒序，所以按数组顺序取就是「较新优先」。
+ */
+function readCtxCategories(
+  ctx: PersonalHomeContext,
+  categories: readonly string[],
+  limit: number,
+): Array<{ title: string; href: string }> {
+  const picked: Array<{ title: string; href: string }> = [];
+  const seen = new Set<string>();
+
+  for (const category of categories) {
+    for (const item of ctx.newsByCategory[category] ?? []) {
+      const title = item.title?.trim() ?? '';
+      const href = sanitizeUrl(item.link);
+      const itemKey = titleKey(title);
+      if (!itemKey || !href || seen.has(itemKey)) continue;
+
+      seen.add(itemKey);
+      picked.push({ title, href });
       if (picked.length >= limit) break;
     }
     if (picked.length >= limit) break;
@@ -211,38 +240,7 @@ function readHighlights(limit: number): Array<{ title: string; href: string }> {
   return picked;
 }
 
-/**
- * 「AI / 科技」候选。
- *
- * 1. 第一优先：已有的 tech / ai 新闻面板（它们可能没挂载或没条目 → 空结果）；
- * 2. 兜底：从**同一批已经渲染出来**的面板里（P2.2 已验证可用），
- *    按 TECH_PATTERN 过滤标题，去重后最多 limit 条。
- * 无论哪条路径都不发请求、不调用 AI；筛不到就返回空，界面显示「暂无重要内容」。
- */
-function readTech(limit: number): Array<{ title: string; href: string }> {
-  const direct = readFromPanels(['tech', 'ai'], limit);
-  if (direct.length > 0) return direct;
-
-  const picked: Array<{ title: string; href: string }> = [];
-  const seen = new Set<string>();
-
-  for (const panel of document.querySelectorAll<HTMLElement>('.panel[data-panel]')) {
-    for (const item of readHeadlines(panel, TECH_SCAN_DEPTH)) {
-      const key = titleKey(item.title);
-      if (!key || seen.has(key)) continue;
-      if (!TECH_PATTERN.test(key)) continue;
-
-      seen.add(key);
-      picked.push(item);
-      if (picked.length >= limit) break;
-    }
-    if (picked.length >= limit) break;
-  }
-
-  return picked;
-}
-
-/** 用 DOM API 建链接：标题走 textContent，href 原样复制已渲染的安全链接，不拼 HTML。 */
+/** 用 DOM API 建链接：标题走 textContent，href 只接受已消毒的链接，不拼 HTML。 */
 function itemNode(item: { title: string; href: string }): HTMLAnchorElement {
   const link = document.createElement('a');
   link.className = 'personal-home__item';
@@ -258,6 +256,8 @@ export class PersonalHome implements AppModule {
   private observer: MutationObserver | null = null;
   /** 每栏上次写入的条目指纹，避免面板自身的动画 tick 反复重写 DOM。 */
   private readonly rendered = new Map<string, string>();
+
+  constructor(private readonly ctx: PersonalHomeContext) {}
 
   /**
    * 填充 panel-layout 已经渲染出来的挂载点。
@@ -275,7 +275,10 @@ export class PersonalHome implements AppModule {
     this.watch();
   }
 
-  /** 面板内容是异步渲染的：只观察 #panelsGrid，内容一到就重取一次。 */
+  /**
+   * 新闻是异步到的：复用面板自己的渲染时机（#panelsGrid 的 DOM 变动）触发重取。
+   * 这里只读 ctx 与已有 DOM，不发起任何请求；指纹比对保证没有变化时不重写 DOM。
+   */
   private watch(): void {
     const grid = document.getElementById('panelsGrid');
     if (!grid || typeof MutationObserver === 'undefined') return;
@@ -283,25 +286,25 @@ export class PersonalHome implements AppModule {
     this.observer.observe(grid, { childList: true, subtree: true });
   }
 
-  /** 只读现有面板 DOM，把最新 N 条标题填进对应栏目。本函数不写 #panelsGrid。 */
+  /** 只读现有 DOM 与 ctx.newsByCategory，把最新 N 条标题填进对应栏目。 */
   private refresh(): void {
     const host = document.getElementById(PERSONAL_HOME_ID);
     if (!host) return;
 
     for (const block of BLOCKS) {
+      const categories = block.ctxCategories;
       const keys = block.panels;
-      if (keys !== 'all' && keys !== 'tech' && keys.length === 0) continue;
+      if (!categories?.length && keys !== 'all' && keys.length === 0) continue;
 
       const slot = host.querySelector<HTMLElement>(`[data-home-items="${block.id}"]`);
       const empty = host.querySelector<HTMLElement>(`[data-home-empty="${block.id}"]`);
       if (!slot || !empty) continue;
 
-      const items =
-        keys === 'all'
+      const items = categories?.length
+        ? readCtxCategories(this.ctx, categories, MAX_ITEMS)
+        : keys === 'all'
           ? readHighlights(MAX_HIGHLIGHTS)
-          : keys === 'tech'
-            ? readTech(MAX_ITEMS)
-            : readFromPanels(keys, MAX_ITEMS);
+          : readFromPanels(keys, MAX_ITEMS);
       const fingerprint = items.map(item => item.href).join('\n');
       if (this.rendered.get(block.id) !== fingerprint) {
         this.rendered.set(block.id, fingerprint);

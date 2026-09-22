@@ -2878,7 +2878,7 @@ export class App {
     markLcpDebug('wm:layout:init-complete');
     // Personal Home (P1)：只填充 panel-layout 已渲染出来的 #personalHome 挂载点。
     // 必须排在 panelLayout.init() 之后 —— 那次调用会整体重写容器内容。
-    const personalHome = new PersonalHome();
+    const personalHome = new PersonalHome(this.state);
     personalHome.init();
     this.modules.push(personalHome);
     this.eventHandlers.setupSearchControls();
