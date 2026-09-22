@@ -1,7 +1,10 @@
 /* Personal Home (P1 shell)
  *
  * 个人情报首页骨架阶段的样式。完全独立：只由 src/app/personal-home.ts 自行
- * import，不改动 main.css / panels.css / base-layer.css 等上游样式文件。
+ * import，不改动 main.css / panels.css / base-layer.css 等上游样式文件的任何一行。
+ * 唯一的例外见下方 @media (min-width: 900px)：桌面端必须把首页显式放进
+ * .main-content 网格的第 1 行，否则它会掉到页面底部。该段只覆盖网格位置，
+ * 删除本文件即可完整回退 P1。
  * 颜色全部继承 currentColor 或使用半透明灰，以便自动适配现有主题与明暗模式。
  */
 
@@ -64,6 +67,37 @@
 .personal-home__link:focus-visible {
   border-color: currentColor;
   text-decoration: none;
+}
+
+/* 桌面 / iPad 横屏（>=900px）
+ *
+ * 根因：main.css 在该断点把 .main-content 变成 CSS Grid，
+ *   grid-template-rows: 1fr auto;
+ * 并把 #mapSection、#panelsGrid、.map-width-resize-handle 三个子项全部显式
+ * 钉在 grid-row: 1。P1 之前恰好只有这三个子项，因此没有"无位置子项"。
+ * 插入 #personalHome 后，它成了唯一没有位置声明的网格子项，被自动排进第 2 行
+ * ——那是一个 auto 行，位于地图和面板网格下方，于是"今日情报"渲染到了页面底部。
+ *
+ * 修法：给网格补一行，首页整行通栏占第 1 行，原有三个子项整体下移到第 2 行。
+ * main.css 经由 base-layer.css 以 layer(base) 引入，而本文件未分层，
+ * 未分层样式优先于任何 @layer，因此这些覆盖不依赖样式加载顺序。
+ * 只覆盖 grid-row / grid-template-rows，列、高度、拖拽逻辑保持原样。
+ */
+@media (min-width: 900px) {
+  #main.main-content {
+    grid-template-rows: auto 1fr auto;
+  }
+
+  #main #personalHome {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  #main .map-section,
+  #main .panels-grid,
+  #main .map-width-resize-handle {
+    grid-row: 2;
+  }
 }
 
 /* 窄屏（iPad 竖屏 / 手机）：单列，避免区块被压成竖条 */
