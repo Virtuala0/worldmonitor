@@ -2382,9 +2382,24 @@ export class PanelLayoutManager implements AppModule {
     return Math.round(0.57 * severity + 0.43 * geoScore);
   }
 
+  /**
+   * 首屏必须真正挂载（不走延后挂载）的面板。
+   *
+   * Personal Home 的「AI / 科技」栏直接读这两个 NewsPanel 的 DOM，而
+   * `deferPanelMount` 只往网格里放一个**占位 shell**，真实的 `a.item-title`
+   * 要等 IntersectionObserver 看到占位块滚入视口才出现 —— 它们排在网格下方，
+   * 首屏永远不会挂载，Personal Home 就永远读不到。
+   *
+   * 这里只是把「已经有占位 shell 的槽位」换成真面板（`mountPanelElement` 会
+   * 用 `replaceChild` 原地替换），槽位是占位 shell 早就预留好的，所以布局不变。
+   * 也刻意不占用首屏挂载预算：其它面板的挂载顺序与数量保持原样。
+   */
+  private static readonly EAGER_MOUNT_PANEL_KEYS: ReadonlySet<string> = new Set(['tech', 'ai']);
+
   private shouldMountPanelImmediately(key: string): boolean {
     const config = this.ctx.panelSettings[key];
     if (!config?.enabled) return false;
+    if (PanelLayoutManager.EAGER_MOUNT_PANEL_KEYS.has(key)) return true;
     if (shouldDeferInitialPanelMount({
       enabled: config.enabled,
       mountedEnabledCount: this.initiallyMountedEnabledPanelCount,
