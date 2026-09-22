@@ -91,23 +91,18 @@ export function renderPersonalHomeShell(): string {
 /**
  * 找到该栏对应的**已存在**面板（只读）。
  *
- * 面板根 id 即 panel key（components/Panel.ts 用 options.id 给根/标题/内容命名），
- * 而 NewsPanel 可能落在 `${key}-news`（见 app/news-panel-keys.ts）。两者都试；
- * 若将来 id 方案再变，退回按面板标题文字匹配——标题字面量与首页栏目名一致。
+ * 面板根是 `<div class="panel" data-panel="<key>">` —— **根元素没有 id 属性**
+ * （components/Panel.ts:203-204 只设 className 与 dataset.panel；
+ * 只有标题/内容子元素才带 id，如 `${key}Title` / `${key}Content`）。
+ * 所以必须按 `data-panel` 定位，不能按 `#id` 定位，也不能依赖面板标题文字
+ * （面板标题是 i18n 文案，与首页栏目名并不相等）。
+ * 在 document 上查找，避免依赖面板恰好挂在 #panelsGrid 内。
  */
 function findPanel(block: HomeBlock): HTMLElement | null {
-  const grid = document.getElementById('panelsGrid');
-  if (!grid) return null;
-
-  for (const id of block.panels) {
-    const found = grid.querySelector<HTMLElement>(`[id="${id}"]`);
+  for (const key of block.panels) {
+    const found = document.querySelector<HTMLElement>(`.panel[data-panel="${key}"]`);
     if (found) return found;
   }
-
-  for (const panel of grid.querySelectorAll<HTMLElement>('.panel')) {
-    if (panel.querySelector('.panel-title')?.textContent?.trim() === block.title) return panel;
-  }
-
   return null;
 }
 
