@@ -9,7 +9,10 @@
  * 的加载与渲染行为。面板会把条目按时间倒序渲染，因此取前 N 条即最新的 N 条。
  * 数据为空时保留「暂无内容」。
  *
- * 本轮仍未做（刻意留空）：「今日重点」排序、AI 摘要、「AI / 科技」数据、全球新闻。
+ * P2.2：「今日重点」汇总所有已渲染新闻面板的条目（见 readHighlights）。
+ * 只做「去重 + 按面板轮转 + 每面板内取较新」，不做评分/AI/关键词模型，取前 5 条。
+ *
+ * 本轮仍未做（刻意留空）：AI 摘要、「AI / 科技」数据。
  *
  * i18n：本轮不新增任何 i18n key，中文占位与栏目名仍在模块内局部定义。
  */
@@ -22,19 +25,26 @@ import '../styles/personal-home.css';
 /** 挂载点 id —— 必须与 panel-layout.ts 模板里的 <section> 保持一致。 */
 export const PERSONAL_HOME_ID = 'personalHome';
 
-/** 每栏最多展示的条数。 */
+/** 中国 / 赤峰每栏最多展示的条数。 */
 const MAX_ITEMS = 3;
+/** 「今日重点」最多展示的条数。 */
+const MAX_HIGHLIGHTS = 5;
 
 interface HomeBlock {
   id: string;
   title: string;
   empty: string;
-  /** 要复用的现有面板根 id 候选（空数组 = 本轮不接数据）。 */
-  panels: readonly string[];
+  /**
+   * 复用来源：
+   * - `'all'`  = 汇总所有已渲染的新闻面板（「今日重点」用）
+   * - 字符串数组 = 指定面板 key
+   * - `[]`     = 本轮不接数据
+   */
+  panels: readonly string[] | 'all';
 }
 
 const BLOCKS: readonly HomeBlock[] = [
-  { id: 'top', title: '今日重点', empty: '暂无内容', panels: [] },
+  { id: 'top', title: '今日重点', empty: '暂无内容', panels: 'all' },
   { id: 'china', title: '中国', empty: '暂无内容', panels: ['china', 'china-news'] },
   { id: 'chifeng', title: '赤峰', empty: '暂无内容', panels: ['chifeng', 'chifeng-news'] },
   { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: [] },
@@ -52,7 +62,8 @@ const SHORTCUTS = [
 
 function blockHtml(block: HomeBlock): string {
   // 接数据的栏目多一个条目容器；空容器由 refresh() 填充。
-  const body = block.panels.length
+  const hasData = block.panels === 'all' || block.panels.length > 0;
+  const body = hasData
     ? [
         `          <div class="personal-home__items" data-home-items="${block.id}"></div>`,
         `          <p class="personal-home__empty" data-home-empty="${block.id}">${block.empty}</p>`,
@@ -98,16 +109,19 @@ export function renderPersonalHomeShell(): string {
  * （面板标题是 i18n 文案，与首页栏目名并不相等）。
  * 在 document 上查找，避免依赖面板恰好挂在 #panelsGrid 内。
  */
-function findPanel(block: HomeBlock): HTMLElement | null {
-  for (const key of block.panels) {
+function findPanel(keys: readonly string[]): HTMLElement | null {
+  for (const key of keys) {
     const found = document.querySelector<HTMLElement>(`.panel[data-panel="${key}"]`);
     if (found) return found;
   }
   return null;
 }
 
-/** 读取面板里已经渲染好的条目（已按时间倒序，取前 MAX_ITEMS 条）。 */
-function readHeadlines(panel: HTMLElement | null): Array<{ title: string; href: string }> {
+/** 读取单个面板里已经渲染好的条目（面板内已按时间倒序，取前 limit 条）。 */
+function readHeadlines(
+  panel: HTMLElement | null,
+  limit = MAX_ITEMS,
+): Array<{ title: string; href: string }> {
   if (!panel) return [];
 
   const items: Array<{ title: string; href: string }> = [];
@@ -116,9 +130,50 @@ function readHeadlines(panel: HTMLElement | null): Array<{ title: string; href: 
     const href = link.getAttribute('href') ?? '';
     if (!title || !href) continue;
     items.push({ title, href });
-    if (items.length >= MAX_ITEMS) break;
+    if (items.length >= limit) break;
   }
   return items;
+}
+
+/** 标题归一化：只用于「明显重复标题只保留一条」，不做任何语义判断。 */
+function titleKey(title: string): string {
+  return title.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * 「今日重点」候选：汇总所有已渲染新闻面板的条目。
+ *
+ * 规则刻意保持轻量（无评分、无 AI、无关键词模型）：
+ * 1. 每个面板内部已是时间倒序，所以直接按 DOM 顺序取，等于「较新的优先」；
+ * 2. 按面板**轮转**取（第一轮每个面板各取 1 条），避免 5 条全部来自同一个面板；
+ * 3. 标题归一化后去重，重复的只保留先取到的那条。
+ * 不新增任何请求，也不读取面板以外的数据。
+ */
+function readHighlights(limit: number): Array<{ title: string; href: string }> {
+  const panels = Array.from(document.querySelectorAll<HTMLElement>('.panel[data-panel]'));
+  // 每个面板最多取 limit 条，够轮转用；面板已按时间倒序。
+  const lists = panels
+    .map(panel => readHeadlines(panel, limit))
+    .filter(list => list.length > 0);
+
+  const picked: Array<{ title: string; href: string }> = [];
+  const seen = new Set<string>();
+
+  for (let round = 0; picked.length < limit && round < limit; round++) {
+    for (const list of lists) {
+      const item = list[round];
+      if (!item) continue;
+
+      const key = titleKey(item.title);
+      if (!key || seen.has(key)) continue;
+
+      seen.add(key);
+      picked.push(item);
+      if (picked.length >= limit) break;
+    }
+  }
+
+  return picked;
 }
 
 /** 用 DOM API 建链接：标题走 textContent，href 原样复制已渲染的安全链接，不拼 HTML。 */
@@ -168,13 +223,14 @@ export class PersonalHome implements AppModule {
     if (!host) return;
 
     for (const block of BLOCKS) {
-      if (!block.panels.length) continue;
+      const keys = block.panels;
+      if (keys !== 'all' && keys.length === 0) continue;
 
       const slot = host.querySelector<HTMLElement>(`[data-home-items="${block.id}"]`);
       const empty = host.querySelector<HTMLElement>(`[data-home-empty="${block.id}"]`);
       if (!slot || !empty) continue;
 
-      const items = readHeadlines(findPanel(block));
+      const items = keys === 'all' ? readHighlights(MAX_HIGHLIGHTS) : readHeadlines(findPanel(keys));
       const fingerprint = items.map(item => item.href).join('\n');
       if (this.rendered.get(block.id) !== fingerprint) {
         this.rendered.set(block.id, fingerprint);
