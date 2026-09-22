@@ -65,8 +65,12 @@
   text-decoration: none;
 }
 
+/* 标题与元数据各自独占一行：显式 block + min-width:0（否则 flex 子项不肯收缩，
+ * text-overflow 不生效）。间距用 margin-top 而不是 gap，避免压缩元数据行高。 */
 .personal-home__item-title,
 .personal-home__item-meta {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -74,7 +78,9 @@
 
 /* 来源 · 时间：比标题小一档并弱化，单行，不抢标题 */
 .personal-home__item-meta {
+  margin-top: 1px;
   font-size: 11px;
+  line-height: 1.35;
   opacity: 0.6;
 }
 

@@ -218,24 +218,30 @@ function withMeta(items: HomeItem[], meta: ReturnType<typeof buildMetaIndex>): H
 
 /**
  * 时间展示规则（浏览器本地时间，不引入任何日期库，不显示秒）：
- * 今天 → `今天 18:20`；昨天 → `昨天 21:05`；
- * 今年更早 → `09-18 14:30`；非今年 → `2025-12-31`。无效日期返回空串。
+ * - 有真实时间：今天 → `今天 18:20`；昨天 → `昨天 21:05`；
+ *   今年更早 → `09-18 14:30`；非今年 → `2025-12-31`。
+ * - 时间部分是 00:00：绝大多数上游 feed 的"只有日期"就是这个形态，
+ *   显示成 `今天 00:00` 等于凭空造了一个午夜时间点，所以按 date-only 展示：
+ *   今天 → `今天`；昨天 → `昨天`；今年更早 → `09-18`；非今年 → `2025-12-31`。
+ * 无效日期返回空串。
  */
 function formatWhen(date: Date | undefined): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
 
   const now = new Date();
-  const hhmm = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   const mmdd = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  // 00:00 视为 date-only（没有证据表明来源真的在该日午夜发布）。
+  const hhmm = String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+  const timeOfDay = date.getHours() === 0 && date.getMinutes() === 0 ? '' : ` ${hhmm}`;
 
-  if (sameDay(date, now)) return `今天 ${hhmm}`;
+  if (sameDay(date, now)) return `今天${timeOfDay}`;
 
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  if (sameDay(date, yesterday)) return `昨天 ${hhmm}`;
+  if (sameDay(date, yesterday)) return `昨天${timeOfDay}`;
 
-  if (date.getFullYear() === now.getFullYear()) return `${mmdd} ${hhmm}`;
+  if (date.getFullYear() === now.getFullYear()) return `${mmdd}${timeOfDay}`;
   return `${date.getFullYear()}-${mmdd}`;
 }
 
