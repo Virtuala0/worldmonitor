@@ -139,13 +139,10 @@ function findPanel(keys: readonly string[]): HTMLElement | null {
 }
 
 /** 读取单个面板里已经渲染好的条目（面板内已按时间倒序，取前 limit 条）。 */
-function readHeadlines(
-  panel: HTMLElement | null,
-  limit = MAX_ITEMS,
-): Array<{ title: string; href: string }> {
+function readHeadlines(panel: HTMLElement | null, limit = MAX_ITEMS): HomeItem[] {
   if (!panel) return [];
 
-  const items: Array<{ title: string; href: string }> = [];
+  const items: HomeItem[] = [];
   for (const link of panel.querySelectorAll<HTMLAnchorElement>('a.item-title[href]')) {
     const title = link.textContent?.trim() ?? '';
     const href = link.getAttribute('href') ?? '';
@@ -156,19 +153,105 @@ function readHeadlines(
   return items;
 }
 
-/** 标题归一化：小写 + 折叠空白；只用于去重，不做语义判断。 */
+/** 标题归一化：小写 + 折叠空白；只用于去重与元数据兜底匹配，不做语义判断。 */
 function titleKey(title: string): string {
   return title.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** 首页条目：标题 + 链接，外加可选的来源/时间元数据（纯展示）。 */
+interface HomeItem {
+  title: string;
+  href: string;
+  source?: string;
+  /** 上游没有可解析 pubDate 时保持 undefined —— 不显示伪造的时间。 */
+  pubDate?: Date;
+}
+
+interface NewsMeta {
+  source: string;
+  pubDate?: Date;
+}
+
+/**
+ * P3.3：把已经加载在 `ctx.newsByCategory` 里的 NewsItem 元数据建成索引。
+ *
+ * DOM 抓取只能拿到 title + href，所以回联优先用 href 精确匹配、标题归一化作兜底
+ * （绝不用已经翻译过的中文标题去匹配 —— 翻译只改我们自己 anchor 的 textContent）。
+ * 全部读内存里已有的数据，不产生任何请求。
+ */
+function buildMetaIndex(ctx: PersonalHomeContext): {
+  byHref: Map<string, NewsMeta>;
+  byTitle: Map<string, NewsMeta>;
+} {
+  const byHref = new Map<string, NewsMeta>();
+  const byTitle = new Map<string, NewsMeta>();
+
+  for (const items of Object.values(ctx.newsByCategory)) {
+    for (const item of items) {
+      const title = item.title?.trim() ?? '';
+      if (!title) continue;
+
+      const meta: NewsMeta = {
+        source: item.source ?? '',
+        pubDate: item.pubDateMissing ? undefined : item.pubDate,
+      };
+
+      const href = sanitizeUrl(item.link);
+      if (href && !byHref.has(href)) byHref.set(href, meta);
+
+      const key = titleKey(title);
+      if (key && !byTitle.has(key)) byTitle.set(key, meta);
+    }
+  }
+
+  return { byHref, byTitle };
+}
+
+/** 用 ctx 元数据补齐 DOM 抓取的条目（href 优先，标题兜底，都没有就原样返回）。 */
+function withMeta(items: HomeItem[], meta: ReturnType<typeof buildMetaIndex>): HomeItem[] {
+  return items.map(item => {
+    const found = meta.byHref.get(item.href) ?? meta.byTitle.get(titleKey(item.title));
+    if (!found) return item;
+    return { title: item.title, href: item.href, source: found.source, pubDate: found.pubDate };
+  });
+}
+
+/**
+ * 时间展示规则（浏览器本地时间，不引入任何日期库，不显示秒）：
+ * 今天 → `今天 18:20`；昨天 → `昨天 21:05`；
+ * 今年更早 → `09-18 14:30`；非今年 → `2025-12-31`。无效日期返回空串。
+ */
+function formatWhen(date: Date | undefined): string {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const hhmm = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const mmdd = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  if (sameDay(date, now)) return `今天 ${hhmm}`;
+
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (sameDay(date, yesterday)) return `昨天 ${hhmm}`;
+
+  if (date.getFullYear() === now.getFullYear()) return `${mmdd} ${hhmm}`;
+  return `${date.getFullYear()}-${mmdd}`;
+}
+
+/** 元数据行：`来源 · 时间`；只有其一就只显示其一；两者都没有返回空串（不显示第二行）。 */
+function metaLine(item: HomeItem): string {
+  const source = item.source?.trim() ?? '';
+  const when = formatWhen(item.pubDate);
+  if (source && when) return `${source} · ${when}`;
+  return source || when;
 }
 
 /**
  * 按给定面板 key 顺序取条目并去重（缺哪个面板就跳过哪个），最多 limit 条。
  */
-function readFromPanels(
-  keys: readonly string[],
-  limit: number,
-): Array<{ title: string; href: string }> {
-  const picked: Array<{ title: string; href: string }> = [];
+function readFromPanels(keys: readonly string[], limit: number): HomeItem[] {
+  const picked: HomeItem[] = [];
   const seen = new Set<string>();
 
   for (const key of keys) {
@@ -196,8 +279,8 @@ function readCtxCategories(
   ctx: PersonalHomeContext,
   categories: readonly string[],
   limit: number,
-): Array<{ title: string; href: string }> {
-  const picked: Array<{ title: string; href: string }> = [];
+): HomeItem[] {
+  const picked: HomeItem[] = [];
   const seen = new Set<string>();
 
   for (const category of categories) {
@@ -208,7 +291,13 @@ function readCtxCategories(
       if (!itemKey || !href || seen.has(itemKey)) continue;
 
       seen.add(itemKey);
-      picked.push({ title, href });
+      picked.push({
+        title,
+        href,
+        // 这条路径本来就有完整 NewsItem，直接带出元数据，无需索引回联。
+        source: item.source ?? '',
+        pubDate: item.pubDateMissing ? undefined : item.pubDate,
+      });
       if (picked.length >= limit) break;
     }
     if (picked.length >= limit) break;
@@ -225,12 +314,12 @@ function readCtxCategories(
  * 2. 按面板**轮转**取（第一轮每个面板各取 1 条），避免 5 条全部来自同一个面板；
  * 3. 标题归一化后去重，重复的只保留先取到的那条。
  */
-function readHighlights(limit: number): Array<{ title: string; href: string }> {
+function readHighlights(limit: number): HomeItem[] {
   const panels = Array.from(document.querySelectorAll<HTMLElement>('.panel[data-panel]'));
   // 每个面板最多取 limit 条，够轮转用；面板已按时间倒序。
   const lists = panels.map(panel => readHeadlines(panel, limit)).filter(list => list.length > 0);
 
-  const picked: Array<{ title: string; href: string }> = [];
+  const picked: HomeItem[] = [];
   const seen = new Set<string>();
 
   for (let round = 0; picked.length < limit && round < limit; round++) {
@@ -250,15 +339,32 @@ function readHighlights(limit: number): Array<{ title: string; href: string }> {
   return picked;
 }
 
-/** 用 DOM API 建链接：标题走 textContent，href 只接受已消毒的链接，不拼 HTML。 */
-function itemNode(item: { title: string; href: string }): HTMLAnchorElement {
+/**
+ * 用 DOM API 建条目：标题 +（有则）`来源 · 时间` 第二行。
+ * href 只接受已消毒的链接，不拼 HTML；返回 titleEl 供翻译就地替换标题，
+ * 这样译文不会连带抹掉下面的元数据行。
+ */
+function itemNode(item: HomeItem): { anchor: HTMLAnchorElement; titleEl: HTMLSpanElement } {
   const link = document.createElement('a');
   link.className = 'personal-home__item';
-  link.textContent = item.title;
   link.setAttribute('href', item.href);
   link.setAttribute('target', '_blank');
   link.setAttribute('rel', 'noopener');
-  return link;
+
+  const titleEl = document.createElement('span');
+  titleEl.className = 'personal-home__item-title';
+  titleEl.textContent = item.title;
+  link.appendChild(titleEl);
+
+  const meta = metaLine(item);
+  if (meta) {
+    const metaEl = document.createElement('span');
+    metaEl.className = 'personal-home__item-meta';
+    metaEl.textContent = meta;
+    link.appendChild(metaEl);
+  }
+
+  return { anchor: link, titleEl };
 }
 
 /* ------------------------------------------------------------------ *
@@ -297,12 +403,12 @@ function looksEnglish(title: string): boolean {
  * 异步把英文标题换成中文。非阻塞：先渲染原文，译文到了再就地替换。
  * 失败/无可用 provider → 保留英文原文；原始数据与链接都不动。
  */
-function localizeHeadline(anchor: HTMLAnchorElement, title: string): void {
+function localizeHeadline(titleEl: HTMLElement, title: string): void {
   if (!looksEnglish(title)) return;
 
   const cached = translationCache.get(title);
   if (cached !== undefined) {
-    if (cached) anchor.textContent = cached;
+    if (cached) titleEl.textContent = cached;
     return;
   }
   if (translationInflight.has(title)) return;
@@ -313,7 +419,7 @@ function localizeHeadline(anchor: HTMLAnchorElement, title: string): void {
     .then(translated => {
       const value = translated?.trim() ?? '';
       translationCache.set(title, value);
-      if (value && anchor.isConnected) anchor.textContent = value;
+      if (value && titleEl.isConnected) titleEl.textContent = value;
     })
     .catch(() => {
       translationCache.set(title, '');
@@ -363,6 +469,9 @@ export class PersonalHome implements AppModule {
     const host = document.getElementById(PERSONAL_HOME_ID);
     if (!host) return;
 
+    // 元数据索引按需构建、每次 refresh 只建一次（DOM 路径的三栏共用）。
+    let meta: ReturnType<typeof buildMetaIndex> | null = null;
+
     for (const block of BLOCKS) {
       const categories = block.ctxCategories;
       const keys = block.panels;
@@ -380,12 +489,14 @@ export class PersonalHome implements AppModule {
       const fingerprint = items.map(item => item.href).join('\n');
       if (this.rendered.get(block.id) !== fingerprint) {
         this.rendered.set(block.id, fingerprint);
-        const nodes = items.map(itemNode);
-        slot.replaceChildren(...nodes);
+        // ctx 路径本身带元数据；DOM 路径用 href / 标题回联 ctx 里已加载的 NewsItem。
+        const enriched = categories?.length ? items : withMeta(items, (meta ??= buildMetaIndex(this.ctx)));
+        const nodes = enriched.map(itemNode);
+        slot.replaceChildren(...nodes.map(node => node.anchor));
         if (block.localize) {
           nodes.forEach((node, index) => {
-            const item = items[index];
-            if (item) localizeHeadline(node, item.title);
+            const item = enriched[index];
+            if (item) localizeHeadline(node.titleEl, item.title);
           });
         }
       }

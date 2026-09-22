@@ -46,8 +46,9 @@
   opacity: 0.55;
 }
 
-/* 复用现有面板真实新闻的条目列表（P2.1）。固定单行、溢出省略，
- * 保证条目数量变化时栏目高度在 0..3 行之间平稳变化，不撑破首页。 */
+/* 复用现有面板真实新闻的条目列表（P2.1）。每条最多两行：标题 + 「来源 · 时间」。
+ * P3.3 之前是单行 block，现在改为纵向 flex，标题行与元数据行各自单行省略，
+ * 保持条目数量变化时栏目高度在 0..3 条之间平稳变化，不撑破首页。 */
 .personal-home__items {
   display: flex;
   flex-direction: column;
@@ -55,14 +56,26 @@
 }
 
 .personal-home__item {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.45;
   color: inherit;
   text-decoration: none;
+}
+
+.personal-home__item-title,
+.personal-home__item-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 来源 · 时间：比标题小一档并弱化，单行，不抢标题 */
+.personal-home__item-meta {
+  font-size: 11px;
+  opacity: 0.6;
 }
 
 .personal-home__item:hover,
