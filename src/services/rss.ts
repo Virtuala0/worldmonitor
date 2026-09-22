@@ -14,6 +14,7 @@ import { mlWorker } from './ml-worker';
 import { isHeadlineMemoryEnabled } from './ai-flow-settings';
 import { yieldToMain } from '@/utils/after-paint';
 import { createYieldingWorkQueue } from '@/utils/yielding-work-queue';
+import { chifengGovernmentHtmlToRss, isChifengGovernmentNewsUrl } from '@/shared/chifeng-news';
 
 export interface RssFetchPolicy {
   ingestGlobalTrends: boolean;
@@ -286,7 +287,10 @@ export async function fetchFeed(feed: Feed, options: FetchFeedOptions = {}): Pro
     throwIfAborted(signal);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const noStoreResponse = hasNoStoreCacheDirective(response.headers);
-    const text = await response.text();
+    const rawText = await response.text();
+    const text = isChifengGovernmentNewsUrl(url)
+      ? chifengGovernmentHtmlToRss(rawText, url, feed.name)
+      : rawText;
     throwIfAborted(signal);
     const isMobile = isMobileDevice();
     const doc = await parseFeedXml(text, isMobile);

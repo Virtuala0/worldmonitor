@@ -19,10 +19,13 @@ const IRAN_ATTACKS_ENABLED = typeof window !== 'undefined' && import.meta.env.VI
 // ============================================
 // FULL VARIANT (Geopolitical)
 // ============================================
-// Panel order matters! First panels appear at top of grid.
-// Desired order: live-news, AI Insights, AI Strategic Posture, cii, strategic-risk, then rest
+// Panel order matters. This personal branch starts with the global, China and
+// Chifeng news panels, then keeps the upstream intelligence layout intact.
 const FULL_PANELS: Record<string, PanelConfig> = {
   map: { name: 'Global Map', enabled: true, priority: 1 },
+  politics: { name: 'World News', enabled: true, priority: 1 },
+  china: { name: 'China News', enabled: true, priority: 1 },
+  chifeng: { name: 'Chifeng News', enabled: true, priority: 1 },
   'live-news': { name: 'Live News', enabled: true, priority: 1 },
   'live-webcams': { name: 'Live Webcams', enabled: true, priority: 1 },
   'windy-webcams': { name: 'Windy Live Webcam', enabled: false, priority: 2 },
@@ -39,7 +42,6 @@ const FULL_PANELS: Record<string, PanelConfig> = {
   'escalation-correlation': { name: 'Escalation Monitor', enabled: true, priority: 2 },
   'economic-correlation': { name: 'Economic Warfare', enabled: true, priority: 2 },
   'disaster-correlation': { name: 'Disaster Cascade', enabled: true, priority: 2 },
-  politics: { name: 'World News', enabled: true, priority: 1 },
   us: { name: 'United States', enabled: true, priority: 1 },
   europe: { name: 'Europe', enabled: true, priority: 1 },
   middleeast: { name: 'Middle East', enabled: true, priority: 1 },
@@ -1520,7 +1522,7 @@ export const PANEL_CATEGORY_MAP: Record<string, { labelKey: string; panelKeys: s
   },
   regionalNews: {
     labelKey: 'header.panelCatRegionalNews',
-    panelKeys: ['politics', 'us', 'europe', 'middleeast', 'africa', 'latam', 'asia'],
+    panelKeys: ['politics', 'china', 'chifeng', 'us', 'europe', 'middleeast', 'africa', 'latam', 'asia'],
     variants: ['full'],
   },
   marketsFinance: {

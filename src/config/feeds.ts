@@ -69,6 +69,18 @@ export const FULL_FEEDS: Record<string, Feed[]> = {
     { name: 'CNN World', url: rss('https://news.google.com/rss/search?q=site:cnn.com+world+news+when:1d&hl=en-US&gl=US&ceid=US:en') },
     { name: 'Trump - Truth Social', url: rss('https://trumpstruth.org/feed') },
   ],
+  china: [
+    { name: '新华社中国', url: rss('https://news.google.com/rss/search?q=site%3Axinhuanet.com%20中国%20when%3A1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans'), lang: 'zh' },
+    { name: '人民网中国', url: rss('https://news.google.com/rss/search?q=site%3Apeople.com.cn%20中国%20when%3A1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans'), lang: 'zh' },
+    { name: '中国新闻网', url: rss('https://news.google.com/rss/search?q=site%3Achinanews.com.cn%20when%3A1d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans'), lang: 'zh' },
+    { name: '中国工信部', url: rss('https://news.google.com/rss/search?q=site%3Amiit.gov.cn%20中国%20工业%20when%3A7d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans'), lang: 'zh' },
+    { name: '中国商务部', url: rss('https://news.google.com/rss/search?q=site%3Amofcom.gov.cn%20中国%20商务%20when%3A7d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans'), lang: 'zh' },
+  ],
+  chifeng: [
+    { name: '赤峰市政府·要闻', url: rss('https://www.chifeng.gov.cn/ywdt/cfyw/?wm=1'), lang: 'zh' },
+    { name: '赤峰市政府·部门动态', url: rss('https://www.chifeng.gov.cn/ywdt/bmdt/?wm=1'), lang: 'zh' },
+    { name: '赤峰市政府·旗县动态', url: rss('https://www.chifeng.gov.cn/ywdt/qxdt/hsdt/?wm=1'), lang: 'zh' },
+  ],
   us: [
     { name: 'Reuters US', url: rss('https://news.google.com/rss/search?q=site:reuters.com+US&hl=en-US&gl=US&ceid=US:en') },
     { name: 'NPR News', url: rss('https://feeds.npr.org/1001/rss.xml') },
@@ -1144,6 +1156,8 @@ export const CANONICAL_FEEDS: Record<string, Feed[]> = mergeCanonicalFeeds([
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
   // Full (geopolitical) variant regions
   worldwide: { labelKey: 'header.sourceRegionWorldwide', feedKeys: ['politics', 'crisis'] },
+  china: { labelKey: 'header.sourceRegionChina', feedKeys: ['china'] },
+  chifeng: { labelKey: 'header.sourceRegionChifeng', feedKeys: ['chifeng'] },
   us: { labelKey: 'header.sourceRegionUS', feedKeys: ['us', 'gov'] },
   europe: { labelKey: 'header.sourceRegionEurope', feedKeys: ['europe'] },
   middleeast: { labelKey: 'header.sourceRegionMiddleEast', feedKeys: ['middleeast'] },
@@ -1600,6 +1614,8 @@ export function getStrategicDefaultSources(): Set<string> {
  */
 export const DEFAULT_ENABLED_SOURCES: Record<string, string[]> = {
   politics: ['BBC World', 'Guardian World', 'AP News', 'Reuters World', 'CNN World'],
+  china: ['新华社中国', '人民网中国', '中国新闻网', '中国工信部', '中国商务部'],
+  chifeng: ['赤峰市政府·要闻', '赤峰市政府·部门动态', '赤峰市政府·旗县动态'],
   // Canada pack (#5960/#6604/#6605): CBC News + CTV News + Toronto Star
   // default-on for North America keyCountry CA (floors.CA = 3). Globe and Mail
   // + Global News remain catalog opt-in (arctic pack). Remaining depth names

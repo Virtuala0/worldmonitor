@@ -162,11 +162,9 @@ export async function initI18n({ waitForFullTranslation = false }: { waitForFull
   // - wmQuery honors shareable application-language URLs such as
   //   /dashboard?lang=fa. These remain base-canonical and are not advertised
   //   as separately indexable hreflang documents.
-  // - wmExplicit reads ONLY the explicit-choice key. Returns undefined when
-  //   unset so detection falls through to navigator. This replaces the default
-  //   `localStorage` step (which would read i18next's auto-cache key) so a user
-  //   whose browser is French always lands on French unless they've explicitly
-  //   chosen otherwise via Settings → Language.
+  // - wmExplicit reads ONLY the explicit-choice key.
+  // - virtuala0Default makes Simplified Chinese the first-visit default while
+  //   keeping URL and explicit user choices authoritative.
   const detector = new LanguageDetector();
   detector.addDetector({
     name: 'wmQuery',
@@ -180,6 +178,11 @@ export async function initI18n({ waitForFullTranslation = false }: { waitForFull
       catch { return undefined; }
     },
     cacheUserLanguage: () => { /* writes go through explicit changeLanguage() */ },
+  });
+  detector.addDetector({
+    name: 'virtuala0Default',
+    lookup: () => 'zh',
+    cacheUserLanguage: () => { /* explicit choices still go through changeLanguage() */ },
   });
 
   await i18next
@@ -196,7 +199,7 @@ export async function initI18n({ waitForFullTranslation = false }: { waitForFull
         escapeValue: false, // not needed for these simple strings
       },
       detection: {
-        order: ['wmQuery', 'wmExplicit', 'navigator'],
+        order: ['wmQuery', 'wmExplicit', 'virtuala0Default'],
         caches: [], // never auto-write — only changeLanguage() persists
       },
     });

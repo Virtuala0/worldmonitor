@@ -2708,6 +2708,8 @@ export class PanelLayoutManager implements AppModule {
     const mapModulePromise = import('@/components/MapContainer');
 
     this.createNewsPanel('politics', 'panels.politics');
+    this.createNewsPanel('china', 'panels.china');
+    this.createNewsPanel('chifeng', 'panels.chifeng');
     this.createNewsPanel('tech', 'panels.tech');
     this.createNewsPanel('finance', 'panels.finance');
 

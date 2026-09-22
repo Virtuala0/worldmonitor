@@ -98,6 +98,8 @@ export const COMMANDS: Command[] = [
   { id: 'panel:toronto-safety', keywords: ['toronto safety', 'tps crime', 'calls attended', 'major crime indicators'], label: 'Panel: Toronto Safety', icon: '\u{1F6E1}\uFE0F', category: 'panels' },
   { id: 'panel:cross-source-signals', keywords: ['cross source', 'signal aggregator', 'composite escalation', 'multi signal'], label: 'Panel: Cross-Source Signals', icon: '\u{1F4E1}', category: 'panels' },
   { id: 'panel:politics', keywords: ['world news', 'politics', 'geopolitics'], label: 'Panel: World News', icon: '\u{1F30D}', category: 'panels' },
+  { id: 'panel:china', keywords: ['china news', '中国新闻', '中国'], label: 'Panel: China News', icon: '\u{1F1E8}\u{1F1F3}', category: 'panels' },
+  { id: 'panel:chifeng', keywords: ['chifeng news', '赤峰新闻', '赤峰'], label: 'Panel: Chifeng News', icon: '\u{1F4CD}', category: 'panels' },
   { id: 'panel:us', keywords: ['united states', 'us news', 'america news'], label: 'Panel: United States', icon: '\u{1F1FA}\u{1F1F8}', category: 'panels' },
   { id: 'panel:europe', keywords: ['europe news', 'eu news', 'europe', 'european'], label: 'Panel: Europe', icon: '\u{1F1EA}\u{1F1FA}', category: 'panels' },
   { id: 'panel:middleeast', keywords: ['middle east news', 'mideast news', 'middle east', 'gulf', 'levant'], label: 'Panel: Middle East', icon: '\u{1F54C}', category: 'panels' },

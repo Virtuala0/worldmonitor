@@ -56,6 +56,18 @@ export const VARIANT_FEEDS: Record<string, Record<string, ServerFeed[]>> = {
       { name: 'CNN World', url: gn('site:cnn.com world news when:1d') },
       { name: 'Trump - Truth Social', url: 'https://trumpstruth.org/feed' },
     ],
+    china: [
+      { name: '新华社中国', url: gnLocale('site:xinhuanet.com 中国 when:1d', 'zh-CN', 'CN', 'CN:zh-Hans'), lang: 'zh', deadlinePriority: 100 },
+      { name: '人民网中国', url: gnLocale('site:people.com.cn 中国 when:1d', 'zh-CN', 'CN', 'CN:zh-Hans'), lang: 'zh', deadlinePriority: 100 },
+      { name: '中国新闻网', url: gnLocale('site:chinanews.com.cn when:1d', 'zh-CN', 'CN', 'CN:zh-Hans'), lang: 'zh', deadlinePriority: 100 },
+      { name: '中国工信部', url: gnLocale('site:miit.gov.cn 中国 工业 when:7d', 'zh-CN', 'CN', 'CN:zh-Hans'), lang: 'zh' },
+      { name: '中国商务部', url: gnLocale('site:mofcom.gov.cn 中国 商务 when:7d', 'zh-CN', 'CN', 'CN:zh-Hans'), lang: 'zh' },
+    ],
+    chifeng: [
+      { name: '赤峰市政府·要闻', url: 'https://www.chifeng.gov.cn/ywdt/cfyw/?wm=1', lang: 'zh', deadlinePriority: 200 },
+      { name: '赤峰市政府·部门动态', url: 'https://www.chifeng.gov.cn/ywdt/bmdt/?wm=1', lang: 'zh', deadlinePriority: 200 },
+      { name: '赤峰市政府·旗县动态', url: 'https://www.chifeng.gov.cn/ywdt/qxdt/hsdt/?wm=1', lang: 'zh', deadlinePriority: 200 },
+    ],
     us: [
       { name: 'Reuters US', url: gn('site:reuters.com US when:1d') },
       { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml' },

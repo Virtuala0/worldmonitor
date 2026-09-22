@@ -88,6 +88,10 @@ import { STORY_ALIAS_PUBLISH_SCRIPT } from '../../../../shared/story-alias-publi
 import { classifyOpinion } from '../../../_shared/opinion-classifier.js';
 import { classifyFeelGood } from '../../../_shared/feelgood-classifier.js';
 import { classifyEphemeralLiveCoverage } from '../../../../shared/ephemeral-live-classifier.js';
+import {
+  chifengGovernmentHtmlToRss,
+  isChifengGovernmentNewsUrl,
+} from '../../../../src/shared/chifeng-news';
 import { deriveCoreStoryPhase } from '../../../../shared/story-phase.js';
 import { buildTickerDictionary, extractTickers } from '../../../../shared/ticker-extract.js';
 import stocksData from '../../../../shared/stocks.json';
@@ -768,7 +772,10 @@ async function fetchRssText(
       signal: controller.signal,
     });
     if (!resp.ok) return { text: null, failure: 'direct-error' };
-    const text = await resp.text();
+    const rawText = await resp.text();
+    const text = isChifengGovernmentNewsUrl(url)
+      ? chifengGovernmentHtmlToRss(rawText, url, '赤峰市政府')
+      : rawText;
     // Defensive: upstream may return HTTP 200 with an HTML interstitial
     // (Cloudflare bot challenge, captcha page). Reject up front so the
     // caller's relay fallback fires instead of caching an empty parse.
