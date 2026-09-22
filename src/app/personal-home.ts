@@ -12,8 +12,9 @@
  * P2.2：「今日重点」汇总所有已渲染新闻面板的条目（见 readHighlights）。
  * 只做「去重 + 按面板轮转 + 每面板内取较新」，不做评分/AI/关键词模型，取前 5 条。
  *
- * P2.3：「AI / 科技」直接读已有的 AI / 科技面板（`tech`、`ai`），
- * 不做关键词评分、不做 NLP/embedding/LLM；命中不到就继续显示「暂无重要内容」。
+ * P2.3：「AI / 科技」先直接读已有的 tech / ai 面板（它们可能根本没挂载），
+ * 无内容时再从 P2.2 已验证可用的同一批已渲染面板里，用一张极小的关键词表
+ * 筛标题兜底（见 readTech）。不含评分 / NLP / embedding / LLM，宁缺毋滥。
  *
  * i18n：本轮不新增任何 i18n key，中文占位与栏目名仍在模块内局部定义。
  */
@@ -30,6 +31,16 @@ export const PERSONAL_HOME_ID = 'personalHome';
 const MAX_ITEMS = 3;
 /** 「今日重点」最多展示的条数。 */
 const MAX_HIGHLIGHTS = 5;
+/** 兜底筛选时每个面板最多扫描的条目数（只是扫描深度，不代表展示数量）。 */
+const TECH_SCAN_DEPTH = 20;
+
+/**
+ * 极小 AI / 科技关键词表 —— 只用于识别「明显」的 AI / 科技标题，不做评分。
+ * 匹配对象是已归一化为小写的标题；ASCII 关键词要求词边界，
+ * 避免 `ai` 误命中 said / against / Dubai 这类普通英文词。
+ */
+const TECH_PATTERN =
+  /(?:^|[^a-z0-9])(?:ai|openai|chatgpt|deepseek|claude|anthropic|gemini|nvidia)(?![a-z0-9])|人工智能|英伟达|芯片|半导体|机器人|大模型/;
 
 interface HomeBlock {
   id: string;
@@ -38,18 +49,18 @@ interface HomeBlock {
   /**
    * 复用来源：
    * - `'all'`  = 汇总所有已渲染的新闻面板（「今日重点」用）
+   * - `'tech'` = 先读 tech / ai 面板，空了再从同一批面板按关键词兜底（「AI / 科技」用）
    * - 字符串数组 = 指定面板 key，按顺序取并去重
    * - `[]`     = 本轮不接数据
    */
-  panels: readonly string[] | 'all';
+  panels: readonly string[] | 'all' | 'tech';
 }
 
 const BLOCKS: readonly HomeBlock[] = [
   { id: 'top', title: '今日重点', empty: '暂无内容', panels: 'all' },
   { id: 'china', title: '中国', empty: '暂无内容', panels: ['china', 'china-news'] },
   { id: 'chifeng', title: '赤峰', empty: '暂无内容', panels: ['chifeng', 'chifeng-news'] },
-  // AI / 科技：直接用已有的 tech / ai 新闻面板，不做关键词筛选。
-  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: ['tech', 'ai'] },
+  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: 'tech' },
 ];
 
 /**
@@ -64,7 +75,7 @@ const SHORTCUTS = [
 
 function blockHtml(block: HomeBlock): string {
   // 接数据的栏目多一个条目容器；空容器由 refresh() 填充。
-  const hasData = block.panels === 'all' || block.panels.length > 0;
+  const hasData = block.panels === 'all' || block.panels === 'tech' || block.panels.length > 0;
   const body = hasData
     ? [
         `          <div class="personal-home__items" data-home-items="${block.id}"></div>`,
@@ -137,14 +148,13 @@ function readHeadlines(
   return items;
 }
 
-/** 标题归一化：只用于「明显重复标题只保留一条」，不做任何语义判断。 */
+/** 标题归一化：小写 + 折叠空白；只用于去重与关键词匹配，不做语义判断。 */
 function titleKey(title: string): string {
   return title.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 /**
  * 按给定面板 key 顺序取条目并去重（缺哪个面板就跳过哪个），最多 limit 条。
- * 「AI / 科技」用它直接读已有的 tech / ai 面板，不做关键词评分。
  */
 function readFromPanels(
   keys: readonly string[],
@@ -201,6 +211,37 @@ function readHighlights(limit: number): Array<{ title: string; href: string }> {
   return picked;
 }
 
+/**
+ * 「AI / 科技」候选。
+ *
+ * 1. 第一优先：已有的 tech / ai 新闻面板（它们可能没挂载或没条目 → 空结果）；
+ * 2. 兜底：从**同一批已经渲染出来**的面板里（P2.2 已验证可用），
+ *    按 TECH_PATTERN 过滤标题，去重后最多 limit 条。
+ * 无论哪条路径都不发请求、不调用 AI；筛不到就返回空，界面显示「暂无重要内容」。
+ */
+function readTech(limit: number): Array<{ title: string; href: string }> {
+  const direct = readFromPanels(['tech', 'ai'], limit);
+  if (direct.length > 0) return direct;
+
+  const picked: Array<{ title: string; href: string }> = [];
+  const seen = new Set<string>();
+
+  for (const panel of document.querySelectorAll<HTMLElement>('.panel[data-panel]')) {
+    for (const item of readHeadlines(panel, TECH_SCAN_DEPTH)) {
+      const key = titleKey(item.title);
+      if (!key || seen.has(key)) continue;
+      if (!TECH_PATTERN.test(key)) continue;
+
+      seen.add(key);
+      picked.push(item);
+      if (picked.length >= limit) break;
+    }
+    if (picked.length >= limit) break;
+  }
+
+  return picked;
+}
+
 /** 用 DOM API 建链接：标题走 textContent，href 原样复制已渲染的安全链接，不拼 HTML。 */
 function itemNode(item: { title: string; href: string }): HTMLAnchorElement {
   const link = document.createElement('a');
@@ -249,14 +290,18 @@ export class PersonalHome implements AppModule {
 
     for (const block of BLOCKS) {
       const keys = block.panels;
-      if (keys !== 'all' && keys.length === 0) continue;
+      if (keys !== 'all' && keys !== 'tech' && keys.length === 0) continue;
 
       const slot = host.querySelector<HTMLElement>(`[data-home-items="${block.id}"]`);
       const empty = host.querySelector<HTMLElement>(`[data-home-empty="${block.id}"]`);
       if (!slot || !empty) continue;
 
       const items =
-        keys === 'all' ? readHighlights(MAX_HIGHLIGHTS) : readFromPanels(keys, MAX_ITEMS);
+        keys === 'all'
+          ? readHighlights(MAX_HIGHLIGHTS)
+          : keys === 'tech'
+            ? readTech(MAX_ITEMS)
+            : readFromPanels(keys, MAX_ITEMS);
       const fingerprint = items.map(item => item.href).join('\n');
       if (this.rendered.get(block.id) !== fingerprint) {
         this.rendered.set(block.id, fingerprint);
