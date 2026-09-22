@@ -1,0 +1,78 @@
+/* Personal Home (P1 shell)
+ *
+ * 个人情报首页骨架阶段的样式。完全独立：只由 src/app/personal-home.ts 自行
+ * import，不改动 main.css / panels.css / base-layer.css 等上游样式文件。
+ * 颜色全部继承 currentColor 或使用半透明灰，以便自动适配现有主题与明暗模式。
+ */
+
+.personal-home {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.personal-home__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.personal-home__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 14px;
+}
+
+.personal-home__block {
+  min-width: 0; /* 允许 grid 子项收缩，避免 iPad 竖屏横向溢出 */
+}
+
+.personal-home__block-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.personal-home__empty {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+.personal-home__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.personal-home__link {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: inherit;
+  text-decoration: none;
+}
+
+.personal-home__link:hover,
+.personal-home__link:focus-visible {
+  border-color: currentColor;
+  text-decoration: none;
+}
+
+/* 窄屏（iPad 竖屏 / 手机）：单列，避免区块被压成竖条 */
+@media (max-width: 720px) {
+  .personal-home {
+    padding: 10px 12px;
+  }
+
+  .personal-home__grid {
+    grid-template-columns: 1fr;
+  }
+}

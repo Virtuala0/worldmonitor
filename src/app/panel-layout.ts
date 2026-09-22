@@ -1257,6 +1257,7 @@ export class PanelLayoutManager implements AppModule {
       </div>
       <div class="dashboard-tabs-mount" id="panelTabsMount"></div>
       <main id="main" tabindex="-1" class="main-content${mapRightClassActive ? ' map-right' : ''}">
+        <section class="personal-home" id="personalHome" aria-labelledby="personalHomeTitle"></section>
         <div class="map-section${mapStartsCollapsed ? ' collapsed' : ''}" id="mapSection">
           <div class="panel-header">
             <div class="panel-header-left">
