@@ -12,9 +12,12 @@
  * P2.2：「今日重点」汇总所有已渲染新闻面板的条目（见 readHighlights）。
  * 只做「去重 + 按面板轮转 + 每面板内取较新」，不做评分/AI/关键词模型，取前 5 条。
  *
- * P2.3：「AI / 科技」不再读 DOM —— tech / ai 面板是延后挂载的，DOM 里长期只有一个
- * 占位 shell。这两类新闻早就由 data-loader 写进 `ctx.newsByCategory`，且写入发生在
- * 面板渲染之前，所以这里**直接从 ctx 读**（见 readCtxCategories），与面板是否挂载无关。
+ * P2.3：「AI / 科技」直接从 `ctx.newsByCategory.tech / .ai` 读（见 readCtxCategories），
+ * 不依赖 NewsPanel 是否挂载。
+ *
+ * P3.1：「今日重点」「AI / 科技」两栏的英文标题复用项目**已有**的翻译链路
+ * （`services/summarization` 的 `translateText`，即 NewsPanel「文」按钮用的同一条链）。
+ * 只影响本模块的展示层：原始数据不改、链接不变、渲染不被阻塞、失败就显示英文原文。
  *
  * i18n：本轮不新增任何 i18n key，中文占位与栏目名仍在模块内局部定义。
  */
@@ -32,6 +35,8 @@ export const PERSONAL_HOME_ID = 'personalHome';
 const MAX_ITEMS = 3;
 /** 「今日重点」最多展示的条数。 */
 const MAX_HIGHLIGHTS = 5;
+/** Personal Home 的目标语言：本模块的栏目名与占位文案都是中文。 */
+const TARGET_LANG = 'zh';
 
 /** Personal Home 只需要 AppContext 里的新闻缓存，不引入整个上下文的依赖面。 */
 type PersonalHomeContext = Pick<AppContext, 'newsByCategory'>;
@@ -47,18 +52,24 @@ interface HomeBlock {
    * - `[]`     = 不读 DOM
    */
   panels: readonly string[] | 'all';
-  /**
-   * 直接从 `ctx.newsByCategory` 读取的 feed 类别（优先级高于 `panels`）。
-   * 用于那些数据已加载、但 NewsPanel 可能还没挂载的类别。
-   */
+  /** 直接从 `ctx.newsByCategory` 读取的 feed 类别（优先级高于 `panels`）。 */
   ctxCategories?: readonly string[];
+  /** 该栏是否把英文标题换成中文（中国/赤峰本来就是中文，不需要）。 */
+  localize?: boolean;
 }
 
 const BLOCKS: readonly HomeBlock[] = [
-  { id: 'top', title: '今日重点', empty: '暂无内容', panels: 'all' },
+  { id: 'top', title: '今日重点', empty: '暂无内容', panels: 'all', localize: true },
   { id: 'china', title: '中国', empty: '暂无内容', panels: ['china', 'china-news'] },
   { id: 'chifeng', title: '赤峰', empty: '暂无内容', panels: ['chifeng', 'chifeng-news'] },
-  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: [], ctxCategories: ['tech', 'ai'] },
+  {
+    id: 'tech',
+    title: 'AI / 科技',
+    empty: '暂无重要内容',
+    panels: [],
+    ctxCategories: ['tech', 'ai'],
+    localize: true,
+  },
 ];
 
 /**
@@ -213,7 +224,6 @@ function readCtxCategories(
  * 1. 每个面板内部已是时间倒序，所以直接按 DOM 顺序取，等于「较新的优先」；
  * 2. 按面板**轮转**取（第一轮每个面板各取 1 条），避免 5 条全部来自同一个面板；
  * 3. 标题归一化后去重，重复的只保留先取到的那条。
- * 不新增任何请求，也不读取面板以外的数据。
  */
 function readHighlights(limit: number): Array<{ title: string; href: string }> {
   const panels = Array.from(document.querySelectorAll<HTMLElement>('.panel[data-panel]'));
@@ -249,6 +259,68 @@ function itemNode(item: { title: string; href: string }): HTMLAnchorElement {
   link.setAttribute('target', '_blank');
   link.setAttribute('rel', 'noopener');
   return link;
+}
+
+/* ------------------------------------------------------------------ *
+ * P3.1 标题中文化
+ *
+ * 复用项目**已有**的翻译链路：`services/summarization` 的 `translateText()`
+ * —— 也就是 NewsPanel「文」按钮调用的同一个函数、同一条 provider 链。
+ * 这里不接任何新的 API、不需要新的 key：链里可用的 provider 由项目原有配置决定，
+ * 一个都没有时 `translateText` 直接返回 null，我们原样显示英文标题。
+ *
+ * 缓存：标题原文 → 译文（空串表示「已尝试过且拿不到」，用来避免反复请求）。
+ * 因为 MutationObserver 会多次触发 refresh，缓存是"同一标题只翻译一次"的保证。
+ * ------------------------------------------------------------------ */
+
+/** 标题原文 → 译文；'' 表示翻译失败或没有可用 provider。 */
+const translationCache = new Map<string, string>();
+/** 正在翻译中的标题，避免同一标题并发请求。 */
+const translationInflight = new Set<string>();
+/** 翻译链路按需加载：Personal Home 是首屏模块，不想把它拖进初始 chunk。 */
+let translateModule: Promise<typeof import('@/services/summarization')> | null = null;
+function loadTranslateModule(): Promise<typeof import('@/services/summarization')> {
+  translateModule ??= import('@/services/summarization');
+  return translateModule;
+}
+
+/** 含中日韩文字：已经不需要翻译。 */
+const CJK_PATTERN = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
+
+/** 只翻译「明显是英文」的标题：没有 CJK 字符，且字母数量够多。 */
+function looksEnglish(title: string): boolean {
+  if (CJK_PATTERN.test(title)) return false;
+  return title.replace(/[^A-Za-z]/g, '').length >= 8;
+}
+
+/**
+ * 异步把英文标题换成中文。非阻塞：先渲染原文，译文到了再就地替换。
+ * 失败/无可用 provider → 保留英文原文；原始数据与链接都不动。
+ */
+function localizeHeadline(anchor: HTMLAnchorElement, title: string): void {
+  if (!looksEnglish(title)) return;
+
+  const cached = translationCache.get(title);
+  if (cached !== undefined) {
+    if (cached) anchor.textContent = cached;
+    return;
+  }
+  if (translationInflight.has(title)) return;
+
+  translationInflight.add(title);
+  void loadTranslateModule()
+    .then(mod => mod.translateText(title, TARGET_LANG))
+    .then(translated => {
+      const value = translated?.trim() ?? '';
+      translationCache.set(title, value);
+      if (value && anchor.isConnected) anchor.textContent = value;
+    })
+    .catch(() => {
+      translationCache.set(title, '');
+    })
+    .finally(() => {
+      translationInflight.delete(title);
+    });
 }
 
 export class PersonalHome implements AppModule {
@@ -308,7 +380,14 @@ export class PersonalHome implements AppModule {
       const fingerprint = items.map(item => item.href).join('\n');
       if (this.rendered.get(block.id) !== fingerprint) {
         this.rendered.set(block.id, fingerprint);
-        slot.replaceChildren(...items.map(itemNode));
+        const nodes = items.map(itemNode);
+        slot.replaceChildren(...nodes);
+        if (block.localize) {
+          nodes.forEach((node, index) => {
+            const item = items[index];
+            if (item) localizeHeadline(node, item.title);
+          });
+        }
       }
       empty.hidden = items.length > 0;
     }
