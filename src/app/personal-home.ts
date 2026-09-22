@@ -1,16 +1,17 @@
 /**
- * Personal Home — P1 shell.
+ * Personal Home.
  *
- * 个人情报首页（骨架阶段）。位置：#main 顶部、#mapSection 之前，
- * 挂载点写在 panel-layout.ts 的 renderLayout 模板里（一行 <section>）。
+ * P1：骨架（静态占位）；P1.1：桌面端网格定位修复（见 styles/personal-home.css）。
  *
- * 本轮只证明：页面顶部能看到该区域；地图与原有面板全部保留；
- * PC / iPad / 移动端不横向溢出；不接真实新闻数据。
- * 刻意不做（留给 P2）：读真实 feeds、排序挑选、AI 摘要、任何新请求。
+ * P2.1：把「中国」「赤峰」两栏接上**已经加载好的**真实新闻。
+ * 复用方式：只读已经渲染出来的 NewsPanel DOM（`a.item-title[href]`），
+ * 不新增任何网络请求、不重抓 RSS、不复制现有新闻加载系统，也不改动面板自身
+ * 的加载与渲染行为。面板会把条目按时间倒序渲染，因此取前 N 条即最新的 N 条。
+ * 数据为空时保留「暂无内容」。
  *
- * i18n：本轮不新增任何 i18n key。仓库存在已知的 locale 漂移
- * （4 个 key 缺在 25 个语言与 zh-TW 语料，见上一轮结论），
- * 因此占位中文先在模块内局部定义，P2 再统一接入 i18n。
+ * 本轮仍未做（刻意留空）：「今日重点」排序、AI 摘要、「AI / 科技」数据、全球新闻。
+ *
+ * i18n：本轮不新增任何 i18n key，中文占位与栏目名仍在模块内局部定义。
  */
 
 import { clearChildren, setTrustedHtml, trustedHtml } from '@/utils/dom-utils';
@@ -21,19 +22,27 @@ import '../styles/personal-home.css';
 /** 挂载点 id —— 必须与 panel-layout.ts 模板里的 <section> 保持一致。 */
 export const PERSONAL_HOME_ID = 'personalHome';
 
-/** 占位区块。P1 全部是静态结构，没有条目、没有请求。 */
-const BLOCKS = [
-  { id: 'top', title: '今日重点', empty: '暂无内容' },
-  { id: 'china', title: '中国', empty: '暂无内容' },
-  { id: 'chifeng', title: '赤峰', empty: '暂无内容' },
-  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容' },
-] as const;
+/** 每栏最多展示的条数。 */
+const MAX_ITEMS = 3;
+
+interface HomeBlock {
+  id: string;
+  title: string;
+  empty: string;
+  /** 要复用的现有面板根 id 候选（空数组 = 本轮不接数据）。 */
+  panels: readonly string[];
+}
+
+const BLOCKS: readonly HomeBlock[] = [
+  { id: 'top', title: '今日重点', empty: '暂无内容', panels: [] },
+  { id: 'china', title: '中国', empty: '暂无内容', panels: ['china', 'china-news'] },
+  { id: 'chifeng', title: '赤峰', empty: '暂无内容', panels: ['chifeng', 'chifeng-news'] },
+  { id: 'tech', title: 'AI / 科技', empty: '暂无重要内容', panels: [] },
+];
 
 /**
  * 快速入口。目标都是本页已存在的锚点，不新增路由：
  * #mapSection 与 #panelsGrid 由 panel-layout.ts 的模板渲染。
- * 面板锚点无法用 #id 直接定位到 data-panel 属性，故 赤峰新闻 先落在面板网格，
- * 用 data-panel-target 给 P2 留出精确滚动 / 高亮的钩子。
  */
 const SHORTCUTS = [
   { label: '全球地图', href: '#mapSection', panel: '' },
@@ -41,11 +50,19 @@ const SHORTCUTS = [
   { label: '赤峰新闻', href: '#panelsGrid', panel: 'chifeng' },
 ] as const;
 
-function blockHtml(block: (typeof BLOCKS)[number]): string {
+function blockHtml(block: HomeBlock): string {
+  // 接数据的栏目多一个条目容器；空容器由 refresh() 填充。
+  const body = block.panels.length
+    ? [
+        `          <div class="personal-home__items" data-home-items="${block.id}"></div>`,
+        `          <p class="personal-home__empty" data-home-empty="${block.id}">${block.empty}</p>`,
+      ]
+    : [`          <p class="personal-home__empty">${block.empty}</p>`];
+
   return [
     `        <div class="personal-home__block" data-home-block="${block.id}">`,
     `          <h3 class="personal-home__block-title">${block.title}</h3>`,
-    `          <p class="personal-home__empty">${block.empty}</p>`,
+    ...body,
     '        </div>',
   ].join('\n');
 }
@@ -71,8 +88,60 @@ export function renderPersonalHomeShell(): string {
   ].join('\n');
 }
 
+/**
+ * 找到该栏对应的**已存在**面板（只读）。
+ *
+ * 面板根 id 即 panel key（components/Panel.ts 用 options.id 给根/标题/内容命名），
+ * 而 NewsPanel 可能落在 `${key}-news`（见 app/news-panel-keys.ts）。两者都试；
+ * 若将来 id 方案再变，退回按面板标题文字匹配——标题字面量与首页栏目名一致。
+ */
+function findPanel(block: HomeBlock): HTMLElement | null {
+  const grid = document.getElementById('panelsGrid');
+  if (!grid) return null;
+
+  for (const id of block.panels) {
+    const found = grid.querySelector<HTMLElement>(`[id="${id}"]`);
+    if (found) return found;
+  }
+
+  for (const panel of grid.querySelectorAll<HTMLElement>('.panel')) {
+    if (panel.querySelector('.panel-title')?.textContent?.trim() === block.title) return panel;
+  }
+
+  return null;
+}
+
+/** 读取面板里已经渲染好的条目（已按时间倒序，取前 MAX_ITEMS 条）。 */
+function readHeadlines(panel: HTMLElement | null): Array<{ title: string; href: string }> {
+  if (!panel) return [];
+
+  const items: Array<{ title: string; href: string }> = [];
+  for (const link of panel.querySelectorAll<HTMLAnchorElement>('a.item-title[href]')) {
+    const title = link.textContent?.trim() ?? '';
+    const href = link.getAttribute('href') ?? '';
+    if (!title || !href) continue;
+    items.push({ title, href });
+    if (items.length >= MAX_ITEMS) break;
+  }
+  return items;
+}
+
+/** 用 DOM API 建链接：标题走 textContent，href 原样复制已渲染的安全链接，不拼 HTML。 */
+function itemNode(item: { title: string; href: string }): HTMLAnchorElement {
+  const link = document.createElement('a');
+  link.className = 'personal-home__item';
+  link.textContent = item.title;
+  link.setAttribute('href', item.href);
+  link.setAttribute('target', '_blank');
+  link.setAttribute('rel', 'noopener');
+  return link;
+}
+
 export class PersonalHome implements AppModule {
   private mounted = false;
+  private observer: MutationObserver | null = null;
+  /** 每栏上次写入的条目指纹，避免面板自身的动画 tick 反复重写 DOM。 */
+  private readonly rendered = new Map<string, string>();
 
   /**
    * 填充 panel-layout 已经渲染出来的挂载点。
@@ -82,11 +151,49 @@ export class PersonalHome implements AppModule {
   init(): void {
     const host = document.getElementById(PERSONAL_HOME_ID);
     if (!host) return; // 非 dashboard 入口或骨架未就绪：静默跳过，不影响宿主
+
     setTrustedHtml(host, trustedHtml(renderPersonalHomeShell(), 'personal-home:static-shell'));
     this.mounted = true;
+
+    this.refresh();
+    this.watch();
+  }
+
+  /** 面板内容是异步渲染的：只观察 #panelsGrid，内容一到就重取一次。 */
+  private watch(): void {
+    const grid = document.getElementById('panelsGrid');
+    if (!grid || typeof MutationObserver === 'undefined') return;
+    this.observer = new MutationObserver(() => this.refresh());
+    this.observer.observe(grid, { childList: true, subtree: true });
+  }
+
+  /** 只读现有面板 DOM，把最新 N 条标题填进对应栏目。本函数不写 #panelsGrid。 */
+  private refresh(): void {
+    const host = document.getElementById(PERSONAL_HOME_ID);
+    if (!host) return;
+
+    for (const block of BLOCKS) {
+      if (!block.panels.length) continue;
+
+      const slot = host.querySelector<HTMLElement>(`[data-home-items="${block.id}"]`);
+      const empty = host.querySelector<HTMLElement>(`[data-home-empty="${block.id}"]`);
+      if (!slot || !empty) continue;
+
+      const items = readHeadlines(findPanel(block));
+      const fingerprint = items.map(item => item.href).join('\n');
+      if (this.rendered.get(block.id) !== fingerprint) {
+        this.rendered.set(block.id, fingerprint);
+        slot.replaceChildren(...items.map(itemNode));
+      }
+      empty.hidden = items.length > 0;
+    }
   }
 
   destroy(): void {
+    this.observer?.disconnect();
+    this.observer = null;
+    this.rendered.clear();
+
     if (!this.mounted) return;
     const host = document.getElementById(PERSONAL_HOME_ID);
     if (host) clearChildren(host);

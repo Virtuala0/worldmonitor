@@ -46,6 +46,30 @@
   opacity: 0.55;
 }
 
+/* 复用现有面板真实新闻的条目列表（P2.1）。固定单行、溢出省略，
+ * 保证条目数量变化时栏目高度在 0..3 行之间平稳变化，不撑破首页。 */
+.personal-home__items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.personal-home__item {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personal-home__item:hover,
+.personal-home__item:focus-visible {
+  text-decoration: underline;
+}
+
 .personal-home__links {
   display: flex;
   flex-wrap: wrap;
